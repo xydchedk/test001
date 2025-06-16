@@ -1,0 +1,37 @@
+name: Sync _worker.js from amclubs/am-cf-tunnel
+
+on:
+  schedule:
+    - cron: '0 18 * * *'  # 注意：GitHub Actions 使用 UTC 时间，18点即为北京时间凌晨2点
+  workflow_dispatch:  # 允许手动触发
+
+jobs:
+  sync_worker:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout this repo
+        uses: actions/checkout@v4
+
+      - name: Clone source repo
+        run: |
+          git clone --depth=1 https://github.com/amclubs/am-cf-tunnel.git upstream-repo
+
+      - name: Compare and copy _worker.js if changed
+        id: check_diff
+        run: |
+          if ! cmp -s "_worker.js" "upstream-repo/_worker.js"; then
+            cp "upstream-repo/_worker.js" "_worker.js"
+            echo "updated=true" >> $GITHUB_OUTPUT
+          else
+            echo "updated=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Commit and push if updated
+        if: steps.check_diff.outputs.updated == 'true'
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add _worker.js
+          git commit -m "Sync _worker.js from upstream"
+          git push
