@@ -248,12 +248,23 @@ function xorDe(b64, key) {
     return decoder.decode(out);
 }
 
+function isIpAddress(str) {
+    const ipv4 = /^(\d{1,3}\.){3}\d{1,3}$/;
+    const ipv6 = /^[0-9a-fA-F:]+$/;
+    return ipv4.test(str) || ipv6.test(str);
+}
+
 async function getDomainToRouteX(addressRemote, portRemote, p64Flag = false, config) {
     let finalTargetHost = addressRemote;
     let finalTargetPort = portRemote;
     try {
         log(`[getDomainToRouteX]--> paddr=${config.paddr}, p64Prefix=${config.p64Prefix}, addressRemote=${addressRemote}, p64=${config.p64}`);
         log(`[getDomainToRouteX]--> pDomain=${JSON.stringify(config.pDomain)}, p64Domain=${JSON.stringify(config.p64Domain)}`);
+
+        if (isIpAddress(addressRemote)) {
+            log(`[getDomainToRouteX] Skip DNS resolve because target is IP`);
+            return { finalTargetHost, finalTargetPort };
+        }
 
         const safeMatch = (domains, target) => {
             try {
@@ -1061,7 +1072,7 @@ async function websvcExecutor(request, config) {
 
             const {
                 hasError,
-                //message,
+                message,
                 portRemote = 443,
                 addressRemote = '',
                 rawDataIndex,
@@ -1071,7 +1082,7 @@ async function websvcExecutor(request, config) {
             } = handleRequestHeader(chunk, id);
             address = addressRemote;
             portWithRandomLog = `${portRemote} ${isUDP ? 'udp' : 'tcp'} `;
-            log(`handleRequestHeader-->${addressType} Processing TCP outbound connection ${addressRemote}:${portRemote}`);
+            log(`handleRequestHeader-->${addressType} Processing TCP outbound connection ${addressRemote}:${portRemote} portWithRandomLog:${portWithRandomLog}`);
 
             if (hasError) {
                 throw new Error(message);
@@ -1089,7 +1100,7 @@ async function websvcExecutor(request, config) {
             const rawClientData = chunk.slice(rawDataIndex);
 
             if (isDns) {
-                const { write } = await handleUPOut(webSocket, channelResponseHeader, log);
+                const { write } = await handleUPOut(webSocket, channelResponseHeader, config);
                 udpStreamWrite = write;
                 udpStreamWrite(rawClientData);
                 return;
@@ -1349,7 +1360,7 @@ async function transferDataStream(remoteS, pipe, channelResponseHeader, onNoData
     return hasIncomingData;
 }
 
-async function handleUPOut(pipe, channelResponseHeader, log) {
+async function handleUPOut(pipe, channelResponseHeader, config) {
     let ischannelHeaderSent = false;
     const transformStream = new TransformStream({
         start(controller) {
@@ -1372,7 +1383,7 @@ async function handleUPOut(pipe, channelResponseHeader, log) {
 
     transformStream.readable.pipeTo(new WritableStream({
         async write(chunk) {
-            const resp = await fetch(durl, // dns server url
+            const resp = await fetch(config.durl, // dns server url
                 {
                     method: 'POST',
                     headers: {
@@ -1393,8 +1404,8 @@ async function handleUPOut(pipe, channelResponseHeader, log) {
                 }
             }
         }
-    })).catch((error) => {
-        error('dns udp has error' + error)
+    })).catch((err) => {
+        error('dns udp has error' + err)
     });
 
     const writer = transformStream.writable.getWriter();
@@ -1575,6 +1586,7 @@ function handleRequestHeader(channelBuffer, id) {
 
     return {
         hasError: false,
+        message: null,
         addressRemote: addressValue,
         portRemote,
         rawDataIndex: addressValueIndex + addressLength,
@@ -1671,6 +1683,7 @@ async function handleRequestHeaderTr(buffer, id) {
     const portRemote = new DataView(portBuffer).getUint16(0);
     return {
         hasError: false,
+        message: null,
         addressRemote: address,
         portRemote,
         rawClientData: s5DataBuffer.slice(portIndex + 4),
